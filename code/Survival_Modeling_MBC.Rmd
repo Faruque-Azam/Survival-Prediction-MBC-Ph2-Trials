@@ -125,7 +125,7 @@ ab = mBC_Dataset_OS %>%
   labs(x= "Median OS (Months)",
        y= "Density",
        tag = "a",
-       subtitle = "N = 1084, NAs = 422, 38.8%; median (IQR) 17.00 (12.07–24.25); mean (SD) 18.64 (8.27)") +
+       subtitle = "N = 1084, NAs = 426, 39.2%; median (IQR) 17.00 (12.07–24.25); mean (SD) 18.64 (8.27)") +
   theme_light(base_size = 9) +
     theme(plot.caption = element_text(hjust = 0)) +
   theme(plot.tag = element_text(face = "bold"))
@@ -148,7 +148,7 @@ cd = mBC_Dataset_OS %>%
   labs(x= "Median PFS (Months)",
        y= "Density",
        tag = "c",
-       subtitle = "N = 1084, NAs = 199, 18.3%; median (IQR) 6.22 (4.10–9.00); mean (SD) 7.01 (3.95)") +
+       subtitle = "N = 1084, NAs = 201, 18.5%; median (IQR) 6.22 (4.10–9.00); mean (SD) 7.01 (3.95)") +
   theme_light(base_size = 9) +
     theme(plot.caption = element_text(hjust = 0)) +
   theme(plot.tag = element_text(face = "bold"))
@@ -221,8 +221,7 @@ ggplot(aes(x = mPFS_2, y = mOS_2, color = ORR)) +
     x = "Median PFS (Months)",
     y = "Median OS (Months)",
     tag = "c",
-    subtitle = expression(italic("p") == 2.91e-150 ~ ", " ~
-        rho["Spearman"] == 0.68 ~ ", " ~
+    subtitle = expression(rho["Spearman"] == 0.68 ~ ", " ~
         CI["95%"] ~ " [0.65, 0.72], " ~
         n["pairs"] == 1084)) + 
   theme_light(base_size = 8.5) + 
@@ -243,7 +242,7 @@ ggscatterstats(mBC_Dataset_OS,
 
 set.seed(329)
 yz = mBC_Dataset_OS %>% 
-  filter(ORR_win5 > 2) %>% 
+  filter(ORR > 2) %>% 
 ggplot(aes(x = ORR, y = mOS_2, color = mPFS_2)) +
   geom_point(size = 1.6, alpha = 0.55, 
              position = position_jitter(width = 0.7, height = 0)) +
@@ -252,8 +251,7 @@ ggplot(aes(x = ORR, y = mOS_2, color = mPFS_2)) +
     x = "ORR (%)",
     y = "Median OS (Months)",
     tag = "b",
-    subtitle = expression(italic("p") == 7.99e-56 ~ ", " ~
-        rho["Spearman"] == 0.45 ~ ", " ~
+    subtitle = expression(rho["Spearman"] == 0.45 ~ ", " ~
         CI["95%"] ~ " [0.40, 0.50], " ~
         n["pairs"] == 1084)) +
   theme_light(base_size = 8.5) +
@@ -283,9 +281,8 @@ ggplot(aes(x = ORR, y = mPFS_2, color = mOS_2)) +
     x = "ORR (%)",
     y = "Median PFS (Months)",
     tag = "a",
-    subtitle = expression(italic("p") == 2.12e-171 ~ ", " ~
-        rho["Spearman"] == 0.72 ~ ", " ~
-        CI["95%"] ~ " [0.69, 0.75], " ~
+    subtitle = expression(rho["Spearman"] == 0.72 ~ ", " ~
+        CI["95%"] ~ " [0.68, 0.75], " ~
         n["pairs"] == 1084)) +
   theme_light(base_size = 8.5) +
         theme(legend.key.size = unit(0.25, "cm"),
@@ -299,6 +296,12 @@ ggplot(aes(x = ORR, y = mPFS_2, color = mOS_2)) +
 
 
 cowplot::plot_grid(zx, yz, xy, nrow = 1)
+
+ggsave(
+  "Fig_1.jpg",
+  width = 15.6,                       
+  height = 6,                      
+  dpi = 600)
 
 ```
 
