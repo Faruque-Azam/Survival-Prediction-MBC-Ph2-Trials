@@ -1,12 +1,12 @@
 ---
-title: "Modeling PFS and OS in MBC phase II trials"
+title: "Modeling PFS and OS in MBC Phase II Trials"
 author: "Faruque Azam"
 date: "2026-01-03"
 output: html_document
 ---
 
 
-```{r importing dataset and formatting variables, include=FALSE, results='hide'}
+```{r Importing Dataset and Formatting Variables, include=FALSE, results='hide'}
 library(tidyverse)
 library(readxl)
 mBC_Dataset_raw = read_excel("MBC_Dataset.xlsx")
@@ -30,13 +30,12 @@ mutate(across(where(is.character), as.factor)) %>%
                          c("1-Agent", "2-Agent", "3-Agent"),
       ordered = TRUE))
 
-
 df_Combo = read_excel("MBC_Combo.xlsx") %>% 
   mutate(across(where(is.numeric), as.factor))
 
 ```
 
-```{r imputing missing values}
+```{r Imputing Missing Data}
 library(tidyverse)
 library(VIM)
 library(mice)
@@ -56,7 +55,6 @@ mBC_Dataset_mice = mBC_Dataset %>%
                     "cart", "cart", "cart", "cart", "cart", "cart",
                     "polyreg", "logreg", "polyreg", "logreg")) 
 
-
 mBC_Dataset_mice_u  = complete(mBC_Dataset_mice, 20)
 
 summary(mBC_Dataset_mice)
@@ -64,7 +62,7 @@ summary(mBC_Dataset_mice)
 ```
 
 
-```{r Feature engineering and final dataset}
+```{r Feature Engineering and Final Dataset}
 
 mBC_Dataset_mice_u = mBC_Dataset_mice_u %>% 
 rename(mOS_2 = mOS, 
@@ -80,7 +78,6 @@ mutate(Size = as.integer(str_extract(as.character(Size), "\\d+")))
 mBC_Dataset_mice_u = bind_cols(mBC_Dataset_mice_u, df_Combo)
 
 
-       
   mBC_Dataset_final = mBC_Dataset_mice_u %>% 
   mutate(Meno = ifelse(Age < 55, "Premeno", "Postmeno")) %>% 
      mutate(Age_Cat = factor(case_when(
@@ -117,7 +114,8 @@ mBC_Dataset_OS = mBC_Dataset_final %>%
 ```
 
 
-```{r Visualizing imputed variables' distribution}
+```{r Visualizing Imputed Variables' Distribution}
+library(ggplot2)
 
 ab = mBC_Dataset_OS %>% 
   ggplot(aes(x = mOS)) +
@@ -129,7 +127,6 @@ ab = mBC_Dataset_OS %>%
   theme_light(base_size = 9) +
     theme(plot.caption = element_text(hjust = 0)) +
   theme(plot.tag = element_text(face = "bold"))
-
 
 ba = mBC_Dataset_OS %>% 
   ggplot(aes(x = mOS_2)) +
@@ -186,7 +183,6 @@ fe = mBC_Dataset_OS %>%
     theme(plot.caption = element_text(hjust = 0)) +
   theme(plot.tag = element_text(face = "bold"))
 
-
 xp = cowplot::plot_grid(ab,ba, nrow = 1)
 px = cowplot::plot_grid(cd,dc, nrow = 1)
 yp = cowplot::plot_grid(ef,fe, nrow = 1)
@@ -202,7 +198,7 @@ cowplot::plot_grid(xp,px,yp, nrow = 3)
 ```
 
 
-```{r Correlation analysis}
+```{r Correlation Analysis}
 library(ggplot2)
 library(viridis)  
 library(ggtext) 
@@ -234,7 +230,6 @@ ggplot(aes(x = mPFS_2, y = mOS_2, color = ORR)) +
             legend.margin = margin(t= 1.5, r=4.2, b=2, l=2)) +
   theme(plot.tag = element_text(face = "bold"))
 
-  
 ggscatterstats(mBC_Dataset_OS,
                ORR,
                mOS_2, 
@@ -263,7 +258,6 @@ ggplot(aes(x = ORR, y = mOS_2, color = mPFS_2)) +
                                              color="NA"),
             legend.margin = margin(t= 1.5, r=4.2, b=2, l=2)) +
   theme(plot.tag = element_text(face = "bold"))
-
 
 ggscatterstats(mBC_Dataset_OS,
                ORR,
@@ -294,7 +288,6 @@ ggplot(aes(x = ORR, y = mPFS_2, color = mOS_2)) +
             legend.margin = margin(t= 1.5, r=4.2, b=2, l=2)) +
   theme(plot.tag = element_text(face = "bold"))
 
-
 cowplot::plot_grid(zx, yz, xy, nrow = 1)
 
 ggsave(
@@ -317,17 +310,14 @@ library(tidymodels)
                   strata = mOS_2) #change strata to "Subtype" if needed
     ranger_split
 
-
   ranger_train = training(ranger_split)
   ranger_test = testing(ranger_split)
-
 
 ranger_cols_25_46 = names(ranger_train)[25:46]
 ranger_cols_25_46 = setdiff(cols_25_46, "mOS_2")
 
 ranger_train_sub = ranger_train %>%
   select(mOS_2, mPFS_2, ORR, Subtype, Pretreated, wECOG_2, Size_Cat, Therapy, all_of(ranger_cols_25_46))  
-
 
 ranger_recipe = recipe(mOS_2 ~ ., data = ranger_train_sub) %>% 
                 step_zv(all_numeric_predictors()) %>% 
@@ -351,7 +341,6 @@ prep(ranger_recipe)
                       add_recipe(ranger_recipe) %>% 
                       add_model(ranger_spec) 
   
-
   ranger_params = grid_regular(
   mtry(range  = c(2L, 30L)),
   min_n(range = c(10L, 30L)),
@@ -368,7 +357,6 @@ prep(ranger_recipe)
     control   = control_grid(save_pred = TRUE),
               grid = ranger_params)
   
-  
   show_best(ranger_res, metric = "mae")  
   show_best(ranger_res, metric = "rmse")
   show_best(ranger_res, metric = "rsq")
@@ -376,7 +364,6 @@ prep(ranger_recipe)
     mae_1 =
     show_best(ranger_res, metric = "mae") %>% 
     slice(5)
-
   
   autoplot(ranger_res) +
   theme_light() +
@@ -412,7 +399,6 @@ top10_ranger = ranger_imp_df %>%
   slice_max(order_by = Importance, n = 15) %>% 
     mutate(Importance_100 = 100 * Importance / max(Importance, na.rm = TRUE))
 
-
 ggplot(top10_ranger, aes(x = Importance_100, y = reorder(Variable, Importance))) +
   geom_segment(aes(x = 0, xend = Importance_100, yend = Variable), 
                linewidth = 0.35) +
@@ -423,13 +409,11 @@ ggplot(top10_ranger, aes(x = Importance_100, y = reorder(Variable, Importance)))
        y = NULL) +
   theme_light(base_size = 5)
 
-
 ggsave(
       "Rand_Forest_vip_mOS.jpg",
       width = 4,                       
       height = 2,                      
       dpi = 900)
-
 
 gf = ranger_fit %>% 
 collect_predictions() %>% 
@@ -463,7 +447,6 @@ ggsave(
 
 ```{r mOS Decision Tree Model}
 
-
 library(tidymodels)
 library(patchwork)
 
@@ -487,8 +470,6 @@ library(patchwork)
   tree_train = training(tree_split)
   tree_test = testing(tree_split)
 
-  
-
   tree_recipe = 
     recipe(formula = Median_OS ~ Median_PFS + ORR + Subtype 
              + Line_of_Therapy + wECOG + Treatment_Size + Therapy + 
@@ -503,7 +484,7 @@ tree_recipe
 
   set.seed(2372)
   tree_boot = bootstraps(tree_train, times = 30,
-                        strata = Subtype) #change strata to "Subtype"
+                        strata = Subtype) #change strata to "Median_OS" if needed
 
 tree_model = decision_tree(
   cost_complexity = tune(),
@@ -511,7 +492,6 @@ tree_model = decision_tree(
   min_n = tune()) %>% 
   set_engine("rpart", model = TRUE) %>% 
   set_mode("regression")
-
 
 tree_grid = grid_regular(
   cost_complexity(),
@@ -532,9 +512,7 @@ tree_grid = grid_regular(
     control   = control_grid(save_pred = TRUE),
               grid = tree_grid)
   
-
 collect_metrics(tree_res)
-
   
 show_best(tree_res, metric = "mae")
 show_best(tree_res, metric = "rmse")
@@ -542,7 +520,6 @@ show_best(tree_res, metric = "rsq")
 
 mae_1 = show_best(tree_res, metric = "mae") %>% 
   slice(1)
-
 
 autoplot(tree_res) +
   theme_light() +
@@ -583,7 +560,6 @@ fit_train %>%
 
 dev.off()
 
-
 fit_test = last_fit(tree_final, Median_OS ~ Median_PFS + ORR + Subtype 
              + Line_of_Therapy + wECOG + Treatment_Size + Therapy + 
              HER2_Antibody + Aromatase_Inhibitor + HER2_Kinase_Inhibitor + Antiestrogen + Antimetabolite + Anthracycline + Platinum, 
@@ -604,7 +580,6 @@ tree_imp = enframe(tree_engine$variable.importance,
   slice_max(order_by = Importance, n = 12)
 
 
-
 ggplot(tree_imp, aes(x = Importance_100, y = reorder(Variable, Importance_100))) +
   geom_segment(aes(x = 0, xend = Importance_100, yend = Variable), 
                linewidth = 0.35) +
@@ -620,7 +595,6 @@ ggsave(
       width = 4,                       
       height = 2,                      
       dpi = 900)
-
 
   ## plot of prediction vs true outcome
   
@@ -652,7 +626,6 @@ ggsave(
       width = 4,                       
       height = 3.5,                      
       dpi = 900)
-
   
   cowplot::plot_grid(de, gf, nrow = 1)
 ggsave(
@@ -663,12 +636,11 @@ ggsave(
 
 ```
 
-```{r Finalize dataset for mPFS modeling}
+```{r Dataset Finalization for mPFS Modeling}
 
 library(stringr)
 library(purrr)
 library(forcats)
-
 
 PFS_df = mBC_Dataset_final %>%
   select(-mOS_2, -mOS)
@@ -696,12 +668,10 @@ library(tidymodels)
                   strata = mPFS_2) #change strata to "Subtype" if needed
     pfs_ranger_split
 
-
   pfs_ranger_train = training(pfs_ranger_split)
   pfs_ranger_test = testing(pfs_ranger_split)
   
-  
-  
+
 pfs_ranger_cols_23_44 = names(pfs_ranger_train)[23:44]
 pfs_ranger_cols_23_44 = setdiff(pfs_ranger_cols_23_44, "mPFS_2")
 
@@ -769,7 +739,6 @@ prep(pfs_ranger_recipe)
       height = 6,                      
       dpi = 600)
 
-
   pfs_final_ranger = pfs_ranger_workflow %>% 
     finalize_workflow(mae_1)
   
@@ -779,7 +748,6 @@ prep(pfs_ranger_recipe)
                       metrics   = metric_set(mae, rmse, rsq))
   
   collect_metrics(pfs_ranger_fit)  
-
 
 library(vip)
 
@@ -803,7 +771,6 @@ ggplot(pfs_top10_ranger, aes(x = Importance_100,
        x = "Variable importance (Normalized)", 
        y = NULL) +
       theme_light(base_size = 5)
-
 
 ggsave(
       "Rand_Forest_vip_mPFS.jpg",
@@ -881,9 +848,8 @@ pfs_tree_recipe
 
   set.seed(786)
   pfs_tree_boot = bootstraps(pfs_tree_train, times = 30,
-                        strata = Median_PFS) # change strata to 
+                        strata = Median_PFS) # change strata to 'Subtype' if needed
   
-
 pfs_tree_model = decision_tree(
   cost_complexity = tune(),
   tree_depth = tune(),
@@ -891,12 +857,10 @@ pfs_tree_model = decision_tree(
   set_engine("rpart", model = TRUE) %>% 
   set_mode("regression")
 
-
 pfs_tree_grid = grid_regular(
   cost_complexity(),
   tree_depth(),
   min_n(), levels = 9)
-
 
   pfs_tree_workflow =   workflow() %>% 
                       add_recipe(pfs_tree_recipe) %>% 
@@ -910,7 +874,6 @@ pfs_tree_grid = grid_regular(
                 metrics   = metric_set(mae, rmse, rsq),
     control   = control_grid(save_pred = TRUE),
               grid = pfs_tree_grid)
-  
 
 show_best(pfs_tree_res, metric = "mae")
 show_best(pfs_tree_res, metric = "rmse")
@@ -960,7 +923,6 @@ pfs_fit_train %>%
         side = 1, line = 3.5, adj = 0.1, cex = 0.45)
 
 dev.off()
-
 
 pfs_fit_test = last_fit(pfs_tree_final, 
                         Median_PFS ~ ORR + Subtype + Line_of_Therapy + wECOG + 
