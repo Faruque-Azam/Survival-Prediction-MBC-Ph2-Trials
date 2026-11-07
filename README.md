@@ -24,12 +24,12 @@ We analyzed 2,622 efficacy endpoints from 892 phase II trials in metastatic brea
 │   ├── MBC_Dataset.xlsx       # Main dataset (1,088 trial arms, 25 variables)
 │   └── MBC_Combo.xlsx         # Treatment combination flags (22 drug class indicators)
 ├── code/
-│   └── Survival_Modeling_mBC.Rmd   # Complete analysis pipeline
+│   └── Survival_Modeling_MBC.Rmd   # Complete analysis pipeline
 |   └── TrialTree-MBC.R        # Shiny/R interactive web app for predicting mPFS and mOS
 ├── figures/                   # Generated figures (after running code)
 ├── README.md
 ├── LICENSE
-└── .gitignore
+└── CITATION.cff
 ```
 
 ## Data Description
@@ -130,7 +130,8 @@ The R Markdown file contains the following sections:
 If you use this code or data, please cite:
 
 ```
-[Author names]. Interpretable machine learning for predicting progression-free and overall survival in metastatic breast cancer phas II trials. [Journal]. [Year]. DOI: [pending]
+[Azam F et al.] Interpretable machine learning for predicting progression-free and overall survival in metastatic breast cancer phase II trials.
+preprint: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7151348
 ```
 
 ## License
@@ -140,7 +141,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Contact
 
 For questions or collaboration inquiries, please contact:
-Faruque Azam at faruque.azam@bracu.ac.bd; walid2372@gmail.com
+Faruque Azam at faruque_azam@outlook.com; azam.faruque01@gmail.com
 
 ## Acknowledgments
 
