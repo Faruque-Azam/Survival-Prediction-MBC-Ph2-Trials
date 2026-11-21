@@ -1,8 +1,8 @@
 # =============================================================================
 # TrialTree-MBC: Median PFS & OS Prediction Tools
 # Advanced Breast Cancer Phase II Trials — Decision Tree Models
-# PFS Model: n = 868; 24 terminal nodes; MAE = 1.92; RMSE = 2.51
-# OS Model:  n = 860; 21 terminal nodes; MAE = 4.54; RMSE = 5.86
+# PFS Model: n = 868; 24 terminal nodes; test MAE = 1.72; RMSE = 2.28 (n = 216)
+# OS Model:  n = 860; 20 terminal nodes; test MAE = 4.44; RMSE = 5.68 (n = 217)
 # =============================================================================
 
 library(shiny)
@@ -11,10 +11,11 @@ library(bslib)
 # =============================================================================
 # HELPER: return list for approximate (internal node) predictions
 # =============================================================================
-make_approx <- function(yval, n_pct, path, node_desc) {
-  path <- c(path, "\u26a0 Variable not available [Stopped at internal node]")
+make_approx <- function(yval, n_pct, path, node_desc,
+                        note = "\u26a0 Variable not available [Stopped at internal node]", reason = NULL) {
+  path <- c(path, note)
   list(prediction = yval, n = NA, pct = n_pct, path = path,
-       node_id = "internal", node_desc = node_desc, approximate = TRUE)
+       node_id = "internal", node_desc = node_desc, approximate = TRUE, approx_reason = reason)
 }
 
 # =============================================================================
@@ -106,7 +107,7 @@ predict_mpfs <- function(orr, wecog, line_of_therapy, subtype, treatment_size, p
           }
         } else {
           path <- c(path, paste0("Treatment Size = ", treatment_size, " [No: combination]"))
-          if (is.na(platinum)) return(make_approx(6.51, "11.8%", path, "Low\u2013Moderate ORR, pretreated, combo, platinum unknown"))
+          if (is.na(platinum)) return(make_approx(6.51, "11.8%", path, "Low\u2013Moderate ORR, pretreated, combo, with or without platinum", note = "\u26a0 Platinum uncertain (may or may not be in the regimen) [Stopped at internal node]", reason = "Platinum was marked uncertain: the regimen may or may not contain a platinum agent, so the tree does not take either branch at this split, and the estimate leans toward the choice that was more common in past trials."))
           if (platinum == 1) {
             path <- c(path, "Platinum-containing = Yes")
             n <- 15
@@ -206,169 +207,160 @@ predict_mpfs <- function(orr, wecog, line_of_therapy, subtype, treatment_size, p
 }
 
 # =============================================================================
-# OS PREDICTION (21 terminal nodes + internal node fallbacks)
+# OS PREDICTION (20 terminal nodes + internal node fallbacks)
 # =============================================================================
 predict_mos <- function(median_pfs, orr, wecog, subtype, line_of_therapy,
-                        aromatase_inhibitor, her2_kinase_inhibitor,
-                        antiestrogen, therapy) {
+                        aromatase_inhibitor, her2_kinase_inhibitor, therapy) {
   path <- c()
   N <- 860
   
-  # ROOT: Median_PFS < 7.2
+  # ROOT: Median_PFS < 7.1
   if (is.na(median_pfs)) return(make_approx(19, "100%", path, "Root node (all trials)"))
   
-  if (median_pfs < 7.2) {
-    path <- c(path, "Median PFS < 7.2 [Yes]")
+  if (median_pfs < 7.1) {
+    path <- c(path, "Median PFS < 7.1 [Yes]")
     if (median_pfs < 4.2) {
       path <- c(path, "Median PFS < 4.2 [Yes]")
-      if (is.na(aromatase_inhibitor)) return(make_approx(12, "27%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), AI status unknown")))
+      if (is.na(aromatase_inhibitor)) return(make_approx(12, "26%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), with or without an aromatase inhibitor"), note = "\u26a0 Aromatase inhibitor uncertain (may or may not be in the regimen) [Stopped at internal node]", reason = "Aromatase inhibitor was marked uncertain: the regimen may or may not include one, so the tree does not take either branch at this split, and the estimate leans toward the choice that was more common in past trials."))
       if (aromatase_inhibitor == 0) {
         path <- c(path, "Aromatase Inhibitor = 0 [Yes]")
-        if (is.na(subtype)) return(make_approx(12, "26%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), no AI, subtype unknown")))
-        if (subtype %in% c("HR+", "Mixed", "TNBC")) {
-          path <- c(path, paste0("Subtype = ", subtype, " [Yes: HR/Mixed/TNBC]"))
-          if (median_pfs < 1.9) {
-            path <- c(path, "Median PFS < 1.9 [Yes]")
-            n <- round(0.03 * N)
-            return(list(prediction = 8.7, n = n, pct = "3%", path = path, node_id = 1, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (<1.9 mo), no AI, HR/Mixed/TNBC"), approximate = FALSE))
-          } else {
-            path <- c(path, "Median PFS < 1.9 [No]")
-            if (is.na(wecog)) return(make_approx(12, "20%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (1.9\u20134.2 mo), no AI, HR/Mixed/TNBC, wECOG unknown")))
-            if (wecog >= 0.62) {
-              path <- c(path, "wECOG >= 0.62 [Yes]")
-              n <- round(0.10 * N)
-              return(list(prediction = 11, n = n, pct = "10%", path = path, node_id = 2, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (1.9\u20134.2 mo), no AI, HR/Mixed/TNBC, ", classify_wecog(wecog)$label), approximate = FALSE))
-            } else {
-              path <- c(path, "wECOG >= 0.62 [No]")
-              n <- round(0.10 * N)
-              return(list(prediction = 13, n = n, pct = "10%", path = path, node_id = 3, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (1.9\u20134.2 mo), no AI, HR/Mixed/TNBC, ", classify_wecog(wecog)$label), approximate = FALSE))
-            }
-          }
+        if (is.na(wecog)) return(make_approx(12, "25%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), no AI, wECOG unknown")))
+        if (wecog >= 0.6) {
+          path <- c(path, "wECOG >= 0.6 [Yes]")
+          n <- round(0.13 * N)
+          return(list(prediction = 11, n = n, pct = "13%", path = path, node_id = 1, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), no AI, ", classify_wecog(wecog)$label), approximate = FALSE))
         } else {
-          path <- c(path, paste0("Subtype = ", subtype, " [No: not HR/Mixed/TNBC]"))
-          n <- round(0.03 * N)
-          return(list(prediction = 15, n = n, pct = "3%", path = path, node_id = 4, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), no AI, HER2+"), approximate = FALSE))
+          path <- c(path, "wECOG >= 0.6 [No]")
+          n <- round(0.12 * N)
+          return(list(prediction = 13, n = n, pct = "12%", path = path, node_id = 2, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), no AI, ", classify_wecog(wecog)$label), approximate = FALSE))
         }
       } else {
         path <- c(path, "Aromatase Inhibitor = 0 [No: AI present]")
         n <- round(0.02 * N)
-        return(list(prediction = 21, n = n, pct = "2%", path = path, node_id = 5, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), AI present"), approximate = FALSE))
+        return(list(prediction = 19, n = n, pct = "2%", path = path, node_id = 3, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (<4.2 mo), AI present"), approximate = FALSE))
       }
     } else {
       path <- c(path, "Median PFS < 4.2 [No]")
-      if (is.na(wecog)) return(make_approx(17, "34%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (4.2\u20137.2 mo), wECOG unknown")))
-      if (wecog >= 0.71) {
-        path <- c(path, "wECOG >= 0.71 [Yes]")
+      if (is.na(wecog)) return(make_approx(17, "34%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (4.2–7.1 mo), wECOG unknown")))
+      if (wecog >= 0.72) {
+        path <- c(path, "wECOG >= 0.72 [Yes]")
         n <- round(0.10 * N)
-        return(list(prediction = 13, n = n, pct = "10%", path = path, node_id = 6, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (4.2\u20137.2 mo), ", classify_wecog(wecog)$label), approximate = FALSE))
+        return(list(prediction = 13, n = n, pct = "10%", path = path, node_id = 4, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (4.2–7.1 mo), ", classify_wecog(wecog)$label), approximate = FALSE))
       } else {
-        path <- c(path, "wECOG >= 0.71 [No]")
-        if (is.na(her2_kinase_inhibitor)) return(make_approx(19, "24%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, better PS, HER2 KI status unknown")))
+        path <- c(path, "wECOG >= 0.72 [No]")
+        if (is.na(her2_kinase_inhibitor)) return(make_approx(18, "23%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, better PS, with or without a HER2 kinase inhibitor"), note = "\u26a0 HER2 kinase inhibitor uncertain (may or may not be in the regimen) [Stopped at internal node]", reason = "HER2 kinase inhibitor was marked uncertain: the regimen may or may not include one, so the tree does not take either branch at this split, and the estimate leans toward the choice that was more common in past trials."))
         if (her2_kinase_inhibitor == 0) {
           path <- c(path, "HER2 Kinase Inhibitor = 0 [Yes]")
-          if (is.na(antiestrogen)) return(make_approx(18, "23%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, no HER2 KI, antiestrogen status unknown")))
-          if (antiestrogen == 0) {
-            path <- c(path, "Antiestrogen = 0 [Yes]")
-            if (is.na(line_of_therapy)) return(make_approx(18, "21%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, no HER2 KI/antiestrogen, line unknown")))
-            if (line_of_therapy == "Pretreated") {
-              path <- c(path, "Line of Therapy = Pretreated [Yes]")
-              if (is.na(therapy)) return(make_approx(17, "16%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, therapy class unknown")))
-              if (therapy == "Chemo") {
-                path <- c(path, "Therapy = Chemo [Yes]")
-                if (is.na(orr)) return(make_approx(16, "9%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, chemo, ORR unknown")))
-                if (orr >= 24) {
-                  path <- c(path, "ORR >= 24 [Yes]")
-                  n <- round(0.07 * N)
-                  return(list(prediction = 15, n = n, pct = "7%", path = path, node_id = 7, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, chemo, Low\u2013Moderate ORR (\u226524%)"), approximate = FALSE))
-                } else {
-                  path <- c(path, "ORR >= 24 [No]")
-                  n <- round(0.02 * N)
-                  return(list(prediction = 21, n = n, pct = "2%", path = path, node_id = 8, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, chemo, Low ORR (<24%)"), approximate = FALSE))
-                }
+          if (is.na(line_of_therapy)) return(make_approx(18, "22%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, no HER2 KI, line unknown")))
+          if (line_of_therapy == "Pretreated") {
+            path <- c(path, "Line of Therapy = Pretreated [Yes]")
+            if (is.na(therapy)) return(make_approx(17, "17%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, therapy class unknown")))
+            if (therapy == "Chemo") {
+              path <- c(path, "Therapy = Chemo [Yes]")
+              if (is.na(orr)) return(make_approx(15, "9%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, chemo, ORR unknown")))
+              if (orr >= 26) {
+                path <- c(path, "ORR >= 26 [Yes]")
+                n <- round(0.07 * N)
+                return(list(prediction = 14, n = n, pct = "7%", path = path, node_id = 5, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, chemo, ORR ≥26%"), approximate = FALSE))
               } else {
-                path <- c(path, "Therapy = Chemo [No]")
-                n <- round(0.08 * N)
-                return(list(prediction = 19, n = n, pct = "8%", path = path, node_id = 9, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, non-chemo therapy"), approximate = FALSE))
+                path <- c(path, "ORR >= 26 [No]")
+                n <- round(0.02 * N)
+                return(list(prediction = 20, n = n, pct = "2%", path = path, node_id = 6, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, pretreated, chemo, ORR <26%"), approximate = FALSE))
               }
             } else {
-              path <- c(path, "Line of Therapy = Pretreated [No: First-line]")
-              n <- round(0.05 * N)
-              return(list(prediction = 20, n = n, pct = "5%", path = path, node_id = 10, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, first-line, no anti-HER2/antiestrogen"), approximate = FALSE))
+              path <- c(path, "Therapy = Chemo [No]")
+              if (median_pfs < 6.1) {
+                path <- c(path, "Median PFS < 6.1 [Yes]")
+                n <- round(0.06 * N)
+                return(list(prediction = 18, n = n, pct = "6%", path = path, node_id = 7, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (4.2–6.1 mo), pretreated, non-chemo therapy"), approximate = FALSE))
+              } else {
+                path <- c(path, "Median PFS < 6.1 [No]")
+                n <- round(0.02 * N)
+                return(list(prediction = 22, n = n, pct = "2%", path = path, node_id = 8, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (6.1–7.1 mo), pretreated, non-chemo therapy"), approximate = FALSE))
+              }
             }
           } else {
-            path <- c(path, "Antiestrogen = 0 [No: antiestrogen present]")
-            n <- round(0.02 * N)
-            return(list(prediction = 24, n = n, pct = "2%", path = path, node_id = 11, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, antiestrogen present"), approximate = FALSE))
+            path <- c(path, "Line of Therapy = Pretreated [No: First-line]")
+            if (wecog >= 0.41) {
+              path <- c(path, "wECOG >= 0.41 [Yes]")
+              n <- round(0.03 * N)
+              return(list(prediction = 19, n = n, pct = "3%", path = path, node_id = 9, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (4.2–7.1 mo), first-line, ", classify_wecog(wecog)$label), approximate = FALSE))
+            } else {
+              path <- c(path, "wECOG >= 0.41 [No]")
+              n <- round(0.02 * N)
+              return(list(prediction = 25, n = n, pct = "2%", path = path, node_id = 10, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (4.2–7.1 mo), first-line, ", classify_wecog(wecog)$label), approximate = FALSE))
+            }
           }
         } else {
           path <- c(path, "HER2 Kinase Inhibitor = 0 [No: HER2 KI present]")
           n <- round(0.02 * N)
-          return(list(prediction = 26, n = n, pct = "2%", path = path, node_id = 12, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS, HER2 kinase inhibitor present"), approximate = FALSE))
+          return(list(prediction = 25, n = n, pct = "2%", path = path, node_id = 11, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (4.2–7.1 mo), HER2 kinase inhibitor present"), approximate = FALSE))
         }
       }
     }
   } else {
-    path <- c(path, "Median PFS < 7.2 [No]")
+    path <- c(path, "Median PFS < 7.1 [No]")
     if (median_pfs < 11) {
       path <- c(path, "Median PFS < 11 [Yes]")
-      if (is.na(wecog)) return(make_approx(22, "26%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (7.2\u201311 mo), wECOG unknown")))
-      if (wecog >= 0.75) {
-        path <- c(path, "wECOG >= 0.75 [Yes]")
+      if (is.na(wecog)) return(make_approx(23, "26%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (7.1–11 mo), wECOG unknown")))
+      if (wecog >= 0.72) {
+        path <- c(path, "wECOG >= 0.72 [Yes]")
         n <- round(0.05 * N)
-        return(list(prediction = 18, n = n, pct = "5%", path = path, node_id = 13, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (7.2\u201311 mo), ", classify_wecog(wecog)$label), approximate = FALSE))
+        return(list(prediction = 18, n = n, pct = "5%", path = path, node_id = 12, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (7.1–11 mo), ", classify_wecog(wecog)$label), approximate = FALSE))
       } else {
-        path <- c(path, "wECOG >= 0.75 [No]")
-        if (median_pfs < 9.2) {
-          path <- c(path, "Median PFS < 9.2 [Yes]")
-          if (median_pfs >= 8.3) {
-            path <- c(path, "Median PFS >= 8.3 [Yes]")
-            n <- round(0.06 * N)
-            return(list(prediction = 21, n = n, pct = "6%", path = path, node_id = 14, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (8.3\u20139.2 mo), ", classify_wecog(wecog)$label), approximate = FALSE))
-          } else {
-            path <- c(path, "Median PFS >= 8.3 [No]")
-            n <- round(0.08 * N)
-            return(list(prediction = 23, n = n, pct = "8%", path = path, node_id = 15, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (7.2\u20138.3 mo), ", classify_wecog(wecog)$label), approximate = FALSE))
-          }
+        path <- c(path, "wECOG >= 0.72 [No]")
+        if (is.na(subtype)) return(make_approx(24, "21%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (7.1–11 mo), better PS, subtype unknown")))
+        if (subtype %in% c("Mixed", "TNBC")) {
+          path <- c(path, paste0("Subtype = ", subtype, " [Yes: Mixed/TNBC]"))
+          n <- round(0.06 * N)
+          return(list(prediction = 22, n = n, pct = "6%", path = path, node_id = 13, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (7.1–11 mo), ", classify_wecog(wecog)$label, ", Mixed/TNBC"), approximate = FALSE))
         } else {
-          path <- c(path, "Median PFS < 9.2 [No]")
-          if (is.na(orr)) return(make_approx(26, "8%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (9.2\u201311 mo), ORR unknown")))
-          if (orr < 48) {
-            path <- c(path, "ORR < 48 [Yes]")
-            n <- round(0.02 * N)
-            return(list(prediction = 22, n = n, pct = "2%", path = path, node_id = 16, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (9.2\u201311 mo), Low\u2013Moderate ORR (<48%)"), approximate = FALSE))
+          path <- c(path, paste0("Subtype = ", subtype, " [No: not Mixed/TNBC]"))
+          if (is.na(orr)) return(make_approx(25, "15%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (7.1–11 mo), HER2+/HR+, ORR unknown")))
+          if (orr >= 25) {
+            path <- c(path, "ORR >= 25 [Yes]")
+            if (median_pfs < 9.2) {
+              path <- c(path, "Median PFS < 9.2 [Yes]")
+              n <- round(0.09 * N)
+              return(list(prediction = 22, n = n, pct = "9%", path = path, node_id = 14, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (7.1–9.2 mo), HER2+/HR+, ORR ≥25%"), approximate = FALSE))
+            } else {
+              path <- c(path, "Median PFS < 9.2 [No]")
+              n <- round(0.04 * N)
+              return(list(prediction = 27, n = n, pct = "4%", path = path, node_id = 15, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (9.2–11 mo), HER2+/HR+, ORR ≥25%"), approximate = FALSE))
+            }
           } else {
-            path <- c(path, "ORR < 48 [No]")
-            n <- round(0.06 * N)
-            return(list(prediction = 27, n = n, pct = "6%", path = path, node_id = 17, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (9.2\u201311 mo), Moderate\u2013High ORR (\u226548%)"), approximate = FALSE))
+            path <- c(path, "ORR >= 25 [No]")
+            n <- round(0.02 * N)
+            return(list(prediction = 31, n = n, pct = "2%", path = path, node_id = 16, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (7.1–11 mo), HER2+/HR+, ORR <25%"), approximate = FALSE))
           }
         }
       }
     } else {
       path <- c(path, "Median PFS < 11 [No]")
-      if (is.na(therapy)) return(make_approx(29, "12%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (\u226511 mo), therapy class unknown")))
+      if (is.na(therapy)) return(make_approx(29, "14%", path, paste0(classify_mpfs(median_pfs)$label, " PFS (≥11 mo), therapy class unknown")))
       if (therapy == "Chemo") {
         path <- c(path, "Therapy = Chemo [Yes]")
-        if (is.na(wecog)) return(make_approx(27, "6%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, chemo, wECOG unknown")))
-        if (wecog >= 0.43) {
-          path <- c(path, "wECOG >= 0.43 [Yes]")
+        if (is.na(wecog)) return(make_approx(26, "7%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, chemo, wECOG unknown")))
+        if (wecog >= 0.39) {
+          path <- c(path, "wECOG >= 0.39 [Yes]")
           n <- round(0.04 * N)
-          return(list(prediction = 24, n = n, pct = "4%", path = path, node_id = 18, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (\u226511 mo), chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
+          return(list(prediction = 24, n = n, pct = "4%", path = path, node_id = 17, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (≥11 mo), chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
         } else {
-          path <- c(path, "wECOG >= 0.43 [No]")
+          path <- c(path, "wECOG >= 0.39 [No]")
           n <- round(0.03 * N)
-          return(list(prediction = 30, n = n, pct = "3%", path = path, node_id = 19, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (\u226511 mo), chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
+          return(list(prediction = 30, n = n, pct = "3%", path = path, node_id = 18, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (≥11 mo), chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
         }
       } else {
         path <- c(path, "Therapy = Chemo [No]")
-        if (is.na(wecog)) return(make_approx(32, "6%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, non-chemo, wECOG unknown")))
+        if (is.na(wecog)) return(make_approx(32, "7%", path, paste0(classify_mpfs(median_pfs)$label, " PFS, non-chemo, wECOG unknown")))
         if (wecog < 0.38) {
           path <- c(path, "wECOG < 0.38 [Yes]")
           n <- round(0.03 * N)
-          return(list(prediction = 29, n = n, pct = "3%", path = path, node_id = 20, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (\u226511 mo), non-chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
+          return(list(prediction = 30, n = n, pct = "3%", path = path, node_id = 19, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (≥11 mo), non-chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
         } else {
           path <- c(path, "wECOG < 0.38 [No]")
           n <- round(0.03 * N)
-          return(list(prediction = 34, n = n, pct = "3%", path = path, node_id = 21, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (\u226511 mo), non-chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
+          return(list(prediction = 34, n = n, pct = "3%", path = path, node_id = 20, node_desc = paste0(classify_mpfs(median_pfs)$label, " PFS (≥11 mo), non-chemo, ", classify_wecog(wecog)$label), approximate = FALSE))
         }
       }
     }
@@ -478,7 +470,8 @@ render_result_card <- function(pred, cat, endpoint_label, mae_str, rmse_str, dis
     tags$div(
       style = "background: #FFF3CD; border: 1px solid #FFC107; border-radius: 6px; padding: 10px; margin-bottom: 12px; font-size: 0.85rem;",
       tags$strong("\u26a0 Approximate Prediction: "),
-      "One or more input variables were not available. The prediction was derived from an ",
+      if (!is.null(pred$approx_reason)) paste0(pred$approx_reason, " ") else "One or more input variables were not available. ",
+      "The prediction was derived from an ",
       tags$strong("internal (non-terminal) node"), " of the decision tree, representing the ",
       "weighted average of all terminal nodes below that split. This estimate is less precise ",
       "than a terminal node prediction."
@@ -590,7 +583,7 @@ ui <- navbarPage(
                         uiOutput("visit_counter"),
                         tags$h2(style = "font-size: 2.2rem; font-weight: 700; color: #2c3e50; margin: 0; letter-spacing: -0.5px;",
                                 "TrialTree-MBC ",
-                                tags$span("v1.3", style = "font-size: 1rem; font-weight: 500; color: #888;")),
+                                tags$span("v1.5", style = "font-size: 1rem; font-weight: 500; color: #888;")),
                         tags$p("Trial-Level Survival Prediction for Metastatic Breast Cancer",
                                style = "font-size: 1.05rem; color: #555; margin-top: 10px; font-weight: 500;"),
                         tags$p(style = "font-size: 0.88rem; color: #999; margin-top: -5px;",
@@ -605,7 +598,7 @@ ui <- navbarPage(
                        tags$hr(style = "margin: 15px 40px;"),
                        tags$div(style = "font-size: 0.8rem; color: #888;",
                                 "6 predictors | 24 terminal nodes", tags$br(),
-                                "Training: n = 868 | MAE = 1.92 mo", tags$br(),
+                                "Test: n = 216 | MAE = 1.72 mo", tags$br(),
                                 "Predictors: ORR, wECOG, subtype, line of therapy, treatment size, platinum")),
                    div(class = "model-card", onclick = "Shiny.setInputValue('goto_os', Math.random())",
                        tags$div(style = "font-size: 2.5rem; margin-bottom: 10px;", icon("chart-line")),
@@ -613,8 +606,8 @@ ui <- navbarPage(
                        tags$p(style = "color: #777; font-size: 0.9rem;", "Predict median overall survival"),
                        tags$hr(style = "margin: 15px 40px;"),
                        tags$div(style = "font-size: 0.8rem; color: #888;",
-                                "9 predictors | 21 terminal nodes", tags$br(),
-                                "Training: n = 860 | MAE = 4.54 mo", tags$br(),
+                                "8 predictors | 20 terminal nodes", tags$br(),
+                                "Test: n = 217 | MAE = 4.44 mo", tags$br(),
                                 "Predictors: mPFS, ORR, wECOG, subtype, therapy class, drug indicators"))
                ),
                tags$div(style = "text-align: center; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; font-size: 0.75rem; color: #8B0000;",
@@ -626,7 +619,7 @@ ui <- navbarPage(
                         "Models are trained on published phase II advanced or metastatic breast cancer trials (1992\u20132022) and may not apply to phase III trials, real-world settings, or other cancers."),
                tags$p(style = "text-align: center; margin-top: 2px; font-size: 0.85rem; color: #666;",
                       "For any inquiries, please contact Faruque Azam at ",
-                      tags$a(href = "mailto:faruque.azam@bracu.ac.bd", "faruque.azam@bracu.ac.bd",
+                      tags$a(href = "mailto:faruque_azam@outlook.com", "faruque_azam@outlook.com",
                              style = "color: #2980b9; text-decoration: none; font-weight: 500;")),
                # --- Logo at bottom ---
                tags$div(style = "text-align: center; margin-top: -15px;",
@@ -651,13 +644,13 @@ ui <- navbarPage(
                                sliderInput("pfs_orr", NULL, min = 0, max = 100, value = 35, step = 0.5, post = "%"),
                                tags$label("Weighted ECOG Score (wECOG)", style = "font-weight: 600; font-size: 0.95rem;"),
                                tags$p("Trial-weighted average ECOG performance status", style = "font-size: 0.75rem; color: #888; margin-bottom: 6px;"),
-                               checkboxInput("pfs_wecog_na", "Not Available", FALSE),
                                conditionalPanel("!input.pfs_wecog_na", sliderInput("pfs_wecog", NULL, min = 0, max = 1.5, value = 0.55, step = 0.01)),
+                               checkboxInput("pfs_wecog_na", "Not Available", FALSE),
                                tags$hr(style = "margin: 10px 0;"),
                                selectInput("pfs_subtype", "Breast Cancer Subtype", c("HR+"="HR+","HER2+"="HER2+","TNBC"="TNBC","Mixed"="Mixed","Not Available"="NA"), "HR+"),
                                selectInput("pfs_lot", "Line of Therapy", c("Pretreated"="Pretreated","First-line (1L)"="First-line","Not Available"="NA"), "Pretreated"),
                                selectInput("pfs_tx", "Treatment Regimen", c("1-Agent (Mono)"="1-Agent","2-Agent (Doublet)"="2-Agent","3-Agent (Triplet)"="3-Agent","Not Available"="NA"), "1-Agent"),
-                               selectInput("pfs_plat", "Platinum-Containing", c("No"=0,"Yes"=1,"Not Available"="NA"), 0),
+                               selectInput("pfs_plat", "Platinum-Containing", c("No"=0,"Yes"=1,"Uncertain"="NA"), 0),
                                tags$hr(style = "margin: 15px 0 10px;"),
                                actionButton("pfs_predict_btn", "Predict Median PFS", class = "btn-primary btn-lg w-100", icon = icon("calculator")),
                                tags$div(style = "margin-top: -10px; text-align: center;",
@@ -675,7 +668,7 @@ ui <- navbarPage(
                   card_body(uiOutput("pfs_path"))),
              tags$p(style = "font-size: 0.85rem; color: #555; margin: 10px 0;",
                     icon("sitemap"), " To visualize the full PFS tree structure, ",
-                    tags$a(href = "https://1drv.ms/i/c/1ede7f09fdbafa1e/IQDx_r9xX3t7RYBkTcaCK3dUAWm63U5Zs33ZJU92GPOGxNw?e=K1bmOP",
+                    tags$a(href = "https://1drv.ms/i/c/1ede7f09fdbafa1e/IQCaB_decpG_RZ4wfM2OQzA0AbCXhmeb_QNdNwbnNp1l5DU?e=n5Ehzy",
                            "click here", target = "_blank", style = "color: #2980b9; font-weight: 500;")),
              card(card_header(tags$h5(icon("info-circle"), " PFS Model Information", style = "margin:0; font-weight:600;")),
                   card_body(
@@ -691,8 +684,8 @@ ui <- navbarPage(
                                                  tags$tr(tags$td("Terminal nodes:"), tags$td(tags$strong("24"))))),
                              tags$div(tags$h6("Performance", style = "font-weight:600;"),
                                       tags$table(class = "table table-sm table-borderless", style = "font-size: 0.85rem;",
-                                                 tags$tr(tags$td("MAE:"), tags$td(tags$strong("1.92 mo"))),
-                                                 tags$tr(tags$td("RMSE:"), tags$td(tags$strong("2.51 mo"))),
+                                                 tags$tr(tags$td("Test MAE:"), tags$td(tags$strong("1.72 mo"))),
+                                                 tags$tr(tags$td("Test RMSE:"), tags$td(tags$strong("2.28 mo"))),
                                                  tags$tr(tags$td("Population:"), tags$td(tags$strong("Advanced or metastatic breast cancer"))),
                                                  tags$tr(tags$td("Outcome:"), tags$td(tags$strong("Median PFS (mo)"))),
                                                  tags$tr(tags$td("Primary split:"), tags$td(tags$strong("ORR (<40.0%)"))))))
@@ -710,21 +703,20 @@ ui <- navbarPage(
                                tags$p("Reported or predicted median PFS from the trial", style = "font-size: 0.75rem; color: #888; margin-bottom: 6px;"),
                                numericInput("os_mpfs", NULL, value = 6.0, min = 0, max = 40, step = 0.1),
                                tags$label("Overall Response Rate (ORR, %)", style = "font-weight: 600; font-size: 0.95rem;"),
-                               checkboxInput("os_orr_na", "Not Available", FALSE),
                                conditionalPanel("!input.os_orr_na", sliderInput("os_orr", NULL, min = 0, max = 100, value = 35, step = 0.5, post = "%")),
+                               checkboxInput("os_orr_na", "Not Available", FALSE),
                                tags$label("Weighted ECOG Score (wECOG)", style = "font-weight: 600; font-size: 0.95rem;"),
                                tags$p("Trial-weighted average ECOG performance status", style = "font-size: 0.75rem; color: #888; margin-bottom: 6px;"),
-                               checkboxInput("os_wecog_na", "Not Available", FALSE),
                                conditionalPanel("!input.os_wecog_na", sliderInput("os_wecog", NULL, min = 0, max = 1.5, value = 0.55, step = 0.01)),
+                               checkboxInput("os_wecog_na", "Not Available", FALSE),
                                tags$hr(style = "margin: 10px 0;"),
                                selectInput("os_subtype", "Breast Cancer Subtype", c("HR+"="HR+","HER2+"="HER2+","TNBC"="TNBC","Mixed"="Mixed","Not Available"="NA"), "HR+"),
                                selectInput("os_lot", "Line of Therapy", c("Pretreated"="Pretreated","First-line (1L)"="First-line","Not Available"="NA"), "Pretreated"),
                                selectInput("os_therapy", "Therapy Class", c("Chemotherapy"="Chemo","Non-Chemotherapy"="Non-Chemo","Not Available"="NA"), "Chemo"),
                                tags$hr(style = "margin: 10px 0;"),
                                tags$label("Drug Class Indicators", style = "font-weight: 600; font-size: 0.95rem;"),
-                               selectInput("os_ai", "Aromatase Inhibitor", c("No"=0,"Yes"=1,"Not Available"="NA"), 0),
-                               selectInput("os_h2ki", "HER2 Kinase Inhibitor", c("No"=0,"Yes"=1,"Not Available"="NA"), 0),
-                               selectInput("os_anti", "Antiestrogen", c("No"=0,"Yes"=1,"Not Available"="NA"), 0),
+                               selectInput("os_ai", "Aromatase Inhibitor", c("No"=0,"Yes"=1,"Uncertain"="NA"), 0),
+                               selectInput("os_h2ki", "HER2 Kinase Inhibitor", c("No"=0,"Yes"=1,"Uncertain"="NA"), 0),
                                tags$hr(style = "margin: 15px 0 10px;"),
                                actionButton("os_predict_btn", "Predict Median OS", class = "btn-primary btn-lg w-100", icon = icon("calculator")),
                                tags$div(style = "margin-top: -10px; text-align: center;",
@@ -742,7 +734,7 @@ ui <- navbarPage(
                   card_body(uiOutput("os_path"))),
              tags$p(style = "font-size: 0.85rem; color: #555; margin: 10px 0;",
                     icon("sitemap"), " To visualize the full OS tree structure, ",
-                    tags$a(href = "https://1drv.ms/i/c/1ede7f09fdbafa1e/IQC2GW_bA0eXRpmQ16wuiLALAVMG1vF61Z46EUEcf1laPOI?e=8ffNC2",
+                    tags$a(href = "https://1drv.ms/i/c/1ede7f09fdbafa1e/IQBjYwyTKSyWRJtJrblts8HaAb29-8XB6LnTkCMQPNHsiyw?e=8sqXKh",
                            "click here", target = "_blank", style = "color: #2980b9; font-weight: 500;")),
              card(card_header(tags$h5(icon("info-circle"), " OS Model Information", style = "margin:0; font-weight:600;")),
                   card_body(
@@ -751,18 +743,18 @@ ui <- navbarPage(
                                       tags$table(class = "table table-sm table-borderless", style = "font-size: 0.85rem;",
                                                  tags$tr(tags$td("Algorithm:"), tags$td(tags$strong("CART Regression Tree (rpart)"))),
                                                  tags$tr(tags$td("Training:"), tags$td(tags$strong("n = 860 phase II trials"))),
-                                                 tags$tr(tags$td("Max tree depth:"), tags$td(tags$strong("5"))),
+                                                 tags$tr(tags$td("Max tree depth:"), tags$td(tags$strong("8"))),
                                                  tags$tr(tags$td("Cost-complexity (cp):"), tags$td(tags$strong("3.16e-3"))),
                                                  tags$tr(tags$td("Min node size:"), tags$td(tags$strong("40"))),
-                                                 tags$tr(tags$td("Internal nodes:"), tags$td(tags$strong("20"))),
-                                                 tags$tr(tags$td("Terminal nodes:"), tags$td(tags$strong("21"))))),
+                                                 tags$tr(tags$td("Internal nodes:"), tags$td(tags$strong("19"))),
+                                                 tags$tr(tags$td("Terminal nodes:"), tags$td(tags$strong("20"))))),
                              tags$div(tags$h6("Performance", style = "font-weight:600;"),
                                       tags$table(class = "table table-sm table-borderless", style = "font-size: 0.85rem;",
-                                                 tags$tr(tags$td("MAE:"), tags$td(tags$strong("4.54 mo"))),
-                                                 tags$tr(tags$td("RMSE:"), tags$td(tags$strong("5.86 mo"))),
+                                                 tags$tr(tags$td("Test MAE:"), tags$td(tags$strong("4.44 mo"))),
+                                                 tags$tr(tags$td("Test RMSE:"), tags$td(tags$strong("5.68 mo"))),
                                                  tags$tr(tags$td("Population:"), tags$td(tags$strong("Advanced or metastatic breast cancer"))),
                                                  tags$tr(tags$td("Outcome:"), tags$td(tags$strong("Median OS (mo)"))),
-                                                 tags$tr(tags$td("Primary split:"), tags$td(tags$strong("mPFS (<7.2 mo)"))))))
+                                                 tags$tr(tags$td("Primary split:"), tags$td(tags$strong("mPFS (<7.1 mo)"))))))
                   ))
            )
   )
@@ -821,7 +813,7 @@ server <- function(input, output, session) {
                 tags$span(paste0("(", wecog_cls$label, ")"),
                           style = paste0("color:", wecog_cls$color, "; font-weight:600;")))
     )
-    render_result_card(pred, cat, "Median PFS", "1.92 mo", "2.51 mo",
+    render_result_card(pred, cat, "Median PFS", "1.72 mo", "2.28 mo",
                        "Categories derived from dataset distribution: median PFS = 6.3 months (IQR: 4.1\u20139.1). Poor: < Q1; Moderate: Q1\u2013median; Good: median\u2013Q3; Favorable: > Q3.",
                        input_summary = input_summary)
   })
@@ -842,11 +834,10 @@ server <- function(input, output, session) {
     ther_val  <- if (input$os_therapy == "NA") NA_character_ else input$os_therapy
     ai_val    <- if (input$os_ai == "NA") NA_integer_ else as.integer(input$os_ai)
     h2ki_val  <- if (input$os_h2ki == "NA") NA_integer_ else as.integer(input$os_h2ki)
-    anti_val  <- if (input$os_anti == "NA") NA_integer_ else as.integer(input$os_anti)
     predict_mos(median_pfs = mpfs_val, orr = orr_val, wecog = wecog_val,
                 subtype = sub_val, line_of_therapy = lot_val,
                 aromatase_inhibitor = ai_val, her2_kinase_inhibitor = h2ki_val,
-                antiestrogen = anti_val, therapy = ther_val)
+                therapy = ther_val)
   })
   
   output$os_result <- renderUI({
@@ -872,7 +863,7 @@ server <- function(input, output, session) {
                 tags$span(paste0("(", wecog_cls$label, ")"),
                           style = paste0("color:", wecog_cls$color, "; font-weight:600;")))
     )
-    render_result_card(pred, cat, "Median OS", "4.54 mo", "5.86 mo",
+    render_result_card(pred, cat, "Median OS", "4.44 mo", "5.68 mo",
                        "Categories derived from dataset distribution: median OS = 17.0 months (IQR: 12\u201324). Poor: < Q1; Moderate: Q1\u2013median; Good: median\u2013Q3; Favorable: > Q3.",
                        input_summary = input_summary)
   })
